@@ -32,12 +32,12 @@ class QHLine(QFrame):
 ## Ask for dimensions
 ########################
 class askDimensions(QDialog):
-    def __init__(self, xy=0.094, z=0.5) -> None:
+    def __init__(self, xy=0.175, z=0.7) -> None:
         """Window asking for dimensions of loaded stack
 
         Args:
-            xy (float, optional): xy dimensions in µm. Defaults to 0.094.
-            z (float, optional): z dimensions in µm. Defaults to 0.5.
+            xy (float, optional): xy dimensions in µm. Defaults to 0.175.
+            z (float, optional): z dimensions in µm. Defaults to 0.7.
         """
         super().__init__()
 
