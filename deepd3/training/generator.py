@@ -314,6 +314,10 @@ class addStackWidget(QWidget):
         self.dendrite     = None 
         self.spines     = None
         self.mask     = None
+        
+        # Pseudolabel annotations (optional)
+        self.dendrite_pseudo = None
+        self.spines_pseudo = None
 
         ##################
         # Stack
@@ -364,7 +368,31 @@ class addStackWidget(QWidget):
         self.selectMaskBtn.setEnabled(False)
         l.addWidget(self.selectMaskBtn, 11, 0, 1, 2)
 
-        l.addWidget(QLabel("Resolution"), 12, 0, 1, 2)
+        ##################
+        # Pseudolabel Dendrite (optional)
+        ##################
+        l.addWidget(QLabel("Pseudolabel Dendrite (optional)"), 12, 0, 1, 2)
+        self.fn_d_pseudo = QLabel("")
+        l.addWidget(self.fn_d_pseudo, 13, 0, 1, 2)
+        
+        self.selectDendritePseudoBtn = QPushButton("Select pseudolabel dendrite")
+        self.selectDendritePseudoBtn.clicked.connect(self.selectDendritePseudo)
+        self.selectDendritePseudoBtn.setEnabled(False)
+        l.addWidget(self.selectDendritePseudoBtn, 14, 0, 1, 2)
+
+        ##################
+        # Pseudolabel Spines (optional)
+        ##################
+        l.addWidget(QLabel("Pseudolabel Spines (optional)"), 15, 0, 1, 2)
+        self.fn_s_pseudo = QLabel("")
+        l.addWidget(self.fn_s_pseudo, 16, 0, 1, 2)
+        
+        self.selectSpinesPseudoBtn = QPushButton("Select pseudolabel spines")
+        self.selectSpinesPseudoBtn.clicked.connect(self.selectSpinesPseudo)
+        self.selectSpinesPseudoBtn.setEnabled(False)
+        l.addWidget(self.selectSpinesPseudoBtn, 17, 0, 1, 2)
+
+        l.addWidget(QLabel("Resolution"), 18, 0, 1, 2)
 
         self.res_xy = QLineEdit()
         self.res_xy.setValidator(QDoubleValidator())
@@ -374,66 +402,66 @@ class addStackWidget(QWidget):
         self.res_z.setValidator(QDoubleValidator())
         self.res_z.setPlaceholderText("Z, in microns, e.g. 0.5 for 500 nm step size")
 
-        l.addWidget(self.res_xy, 13, 0, 1, 2)
-        l.addWidget(self.res_z, 14, 0, 1, 2)
+        l.addWidget(self.res_xy, 19, 0, 1, 2)
+        l.addWidget(self.res_z, 20, 0, 1, 2)
 
-        l.addWidget(QLabel("Determine offsets using the ROI"), 16, 0, 1, 2)
+        l.addWidget(QLabel("Determine offsets using the ROI"), 22, 0, 1, 2)
 
         self.cropToROI = QCheckBox("Crop annotation to ROI")
         self.cropToROI.setChecked(True)
-        l.addWidget(self.cropToROI, 17, 0)
+        l.addWidget(self.cropToROI, 23, 0)
 
-        l.addWidget(QLabel("x"), 18, 0)
+        l.addWidget(QLabel("x"), 24, 0)
 
         self.offsets_x = QLineEdit("")
         self.offsets_x.setValidator(QIntValidator())
-        l.addWidget(self.offsets_x, 18, 1)
+        l.addWidget(self.offsets_x, 24, 1)
 
-        l.addWidget(QLabel("y"), 19, 0)
+        l.addWidget(QLabel("y"), 25, 0)
 
         self.offsets_y = QLineEdit("")
         self.offsets_y.setValidator(QIntValidator())
-        l.addWidget(self.offsets_y, 19, 1)
+        l.addWidget(self.offsets_y, 25, 1)
 
-        l.addWidget(QLabel("w"), 20, 0)
+        l.addWidget(QLabel("w"), 26, 0)
 
         self.offsets_w = QLineEdit("")
         self.offsets_w.setValidator(QIntValidator())
-        l.addWidget(self.offsets_w, 20, 1)
+        l.addWidget(self.offsets_w, 26, 1)
 
-        l.addWidget(QLabel("h"), 21, 0)
+        l.addWidget(QLabel("h"), 27, 0)
 
         self.offsets_h = QLineEdit("")
         self.offsets_h.setValidator(QIntValidator())
-        l.addWidget(self.offsets_h, 21, 1)
+        l.addWidget(self.offsets_h, 27, 1)
 
         self.zValidator = QIntValidator()
         self.zValidator.setRange(0, 1)
 
-        l.addWidget(QLabel("z (begin), shortcut B"), 22, 0)
+        l.addWidget(QLabel("z (begin), shortcut B"), 28, 0)
         self.offsets_z_begin = QLineEdit("")
         self.offsets_z_begin.setValidator(self.zValidator)
-        l.addWidget(self.offsets_z_begin, 22, 1)
+        l.addWidget(self.offsets_z_begin, 28, 1)
 
-        l.addWidget(QLabel("z (end), shortcut E"), 23, 0)
+        l.addWidget(QLabel("z (end), shortcut E"), 29, 0)
         self.offsets_z_end = QLineEdit("")
         self.offsets_z_end.setValidator(self.zValidator)
-        l.addWidget(self.offsets_z_end, 23, 1)
+        l.addWidget(self.offsets_z_end, 29, 1)
 
         self.progressbar = QProgressBar()
 
-        l.addWidget(self.progressbar, 24, 0, 1, 2)
+        l.addWidget(self.progressbar, 30, 0, 1, 2)
 
         saveBtn = QPushButton("Save annotation stack")
         saveBtn.clicked.connect(self.save)
-        l.addWidget(saveBtn, 25, 0, 1, 2)
+        l.addWidget(saveBtn, 31, 0, 1, 2)
 
 
         expand = QLabel()
         sizePolicy = QSizePolicy(QSizePolicy.Expanding , QSizePolicy.Expanding )
         expand.setSizePolicy(sizePolicy)
 
-        l.addWidget(expand, 27, 0)
+        l.addWidget(expand, 33, 0)
 
     def updateZ(self, a, b):
         """Updates z-level in stack
@@ -503,10 +531,34 @@ class addStackWidget(QWidget):
                 f"{e}")
             return
 
+        # Merge annotations if both ground-truth and pseudolabels are provided with a mask
+        dendrite_to_save = self.dendrite
+        spines_to_save = self.spines
+        
+        if (type(self.mask) != type(None) and 
+            type(self.dendrite_pseudo) != type(None) and 
+            type(self.spines_pseudo) != type(None)):
+            
+            # Perform guided merging using the binary mask
+            # Where mask is 1 (True): use ground-truth
+            # Where mask is 0 (False): use pseudolabels
+            
+            # Expand 2D mask to 3D for broadcasting
+            mask_3d = np.broadcast_to(self.mask[np.newaxis, :, :], self.dendrite.shape)
+            
+            # Merge dendrite annotations
+            dendrite_to_save = np.where(mask_3d, self.dendrite, self.dendrite_pseudo)
+            
+            # Merge spine annotations  
+            spines_to_save = np.where(mask_3d, self.spines, self.spines_pseudo)
+            
+            QMessageBox.information(self, "Merging Complete", 
+                "Ground-truth and pseudolabel annotations have been merged using the binary mask.")
+
         if self.cropToROI.isChecked():
             stack = self.im[z_begin:z_end+1, y:y+h, x:x+w]
-            dendrite = self.dendrite[z_begin:z_end+1, y:y+h, x:x+w]
-            spines = self.spines[z_begin:z_end+1, y:y+h, x:x+w]
+            dendrite = dendrite_to_save[z_begin:z_end+1, y:y+h, x:x+w]
+            spines = spines_to_save[z_begin:z_end+1, y:y+h, x:x+w]
             
             # Crop the mask if provided (it's 2D, so we crop xy only)
             if type(self.mask) != type(None):
@@ -516,8 +568,8 @@ class addStackWidget(QWidget):
 
         else:
             stack = self.im[z_begin:z_end+1]
-            dendrite = self.dendrite[z_begin:z_end+1]
-            spines = self.spines[z_begin:z_end+1]
+            dendrite = dendrite_to_save[z_begin:z_end+1]
+            spines = spines_to_save[z_begin:z_end+1]
             mask = self.mask
 
 
@@ -588,6 +640,8 @@ class addStackWidget(QWidget):
             self.selectDendriteBtn.setEnabled(True)
             self.selectSpinesBtn.setEnabled(True)
             self.selectMaskBtn.setEnabled(True)
+            self.selectDendritePseudoBtn.setEnabled(True)
+            self.selectSpinesPseudoBtn.setEnabled(True)
 
             ### Add overlay
             # Prediction overlay
@@ -610,15 +664,48 @@ class addStackWidget(QWidget):
 
         # current z index
         cur_i = self.imv.currentIndex 
+        
+        # Determine which annotations to display
+        # If we have both ground-truth and pseudolabels with a mask, merge them for visualization
+        dendrite_display = self.dendrite
+        spines_display = self.spines
+        
+        if (type(self.mask) != type(None) and 
+            type(self.dendrite_pseudo) != type(None) and 
+            type(self.spines_pseudo) != type(None)):
+            
+            # Merge annotations using the mask
+            mask_2d = self.mask > 0  # Convert to boolean
+            dendrite_display = np.where(mask_2d, self.dendrite[cur_i], self.dendrite_pseudo[cur_i])
+            spines_display = np.where(mask_2d, self.spines[cur_i], self.spines_pseudo[cur_i])
+        else:
+            # Use regular ground-truth annotations
+            if type(self.dendrite) != type(None):
+                dendrite_display = self.dendrite[cur_i]
+            else:
+                dendrite_display = None
+                
+            if type(self.spines) != type(None):
+                spines_display = self.spines[cur_i]
+            else:
+                spines_display = None
 
         # if dendrite segmentation is available
-        if type(self.dendrite) != type(None):
-            self.overlay[..., 0] = self.dendrite[cur_i]
-            self.overlay[..., 2] = self.dendrite[cur_i] 
+        if type(dendrite_display) != type(None):
+            self.overlay[..., 0] = dendrite_display
+            self.overlay[..., 2] = dendrite_display
 
         # if spines segmentation is available
-        if type(self.spines) != type(None):
-            self.overlay[..., 1] = self.spines[cur_i] * 255
+        if type(spines_display) != type(None):
+            self.overlay[..., 1] = spines_display * 255
+            
+        # If mask exists, show pseudolabel regions with reduced intensity
+        if type(self.mask) != type(None):
+            # Apply mask: where mask is 0 (pseudolabel), reduce overlay intensity
+            mask_alpha = self.mask.astype(np.float32) * 0.5 + 0.5  # 0.5 for pseudolabel, 1.0 for ground truth
+            self.overlay[..., 0] = (self.overlay[..., 0] * mask_alpha).astype(np.uint8)
+            self.overlay[..., 1] = (self.overlay[..., 1] * mask_alpha).astype(np.uint8)
+            self.overlay[..., 2] = (self.overlay[..., 2] * mask_alpha).astype(np.uint8)
 
         # Show the image
         self.overlayItem.setImage(self.overlay.transpose(1, 0, 2))
@@ -702,6 +789,56 @@ class addStackWidget(QWidget):
             
             self.mask = mask_2d
 
+    def selectDendritePseudo(self):
+        """Select pseudolabel dendrite annotation file
+        """
+        fn = QFileDialog.getOpenFileName(caption="Select pseudolabel dendrite tracings", filter="*.tif; *.swc")[0]
+
+        if fn:
+            self.fn_d_pseudo.setText(fn)
+
+            if fn.endswith("swc"): 
+                target_fn = fn[:-4] + "_dendrite.tif"
+
+                if os.path.exists(target_fn):
+                    ok = QMessageBox.question(self, 
+                        "Keep it?", 
+                        "We found an existing converted dendritic trace. Should I keep it?")
+
+                    if ok == QMessageBox.Yes:
+                        self.dendrite_pseudo = np.asarray(io.mimread(target_fn, memtest=False))
+                        return 
+
+                aS = askSpacing()
+
+                ### Now convert dendrite
+                d = DendriteSWC(spacing=aS.spacing())
+                d.node.connect(self.updateProgress)
+                d.open(fn, self.fn_stack.text())
+                d.convert(target_fn)
+
+                self.dendrite_pseudo = np.asarray(io.mimread(target_fn, memtest=False))
+
+            else:
+                self.dendrite_pseudo = np.asarray(io.mimread(fn, memtest=False))
+
+    def selectSpinesPseudo(self):
+        """Select a pseudolabel spine annotation
+        """
+        fn = QFileDialog.getOpenFileName(caption="Select pseudolabel spine stack", filter="*.tif, *.mask")[0]
+
+        if fn:
+            self.fn_s_pseudo.setText(fn)
+
+            if fn.endswith("mask"):
+                # Load a pipra annotated mask file
+                mask = fl.load(fn, "/mask").transpose(0, 2, 1)
+
+            else:
+                # Load a tif file
+                mask = np.asarray(io.mimread(fn, memtest=False))
+
+            self.spines_pseudo = mask
 
 class Selector(QWidget):
     def __init__(self):
