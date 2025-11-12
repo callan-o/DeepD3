@@ -68,12 +68,15 @@ class DataGeneratorStream(Sequence):
         Returns
         -------
         tuple
-            Contains two numpy arrays,
-            each of shape (batch_size, height, width, 1). 
+            Contains X (images), (Y0, Y1) (labels), and sample_weight (mask).
+            X shape: (batch_size, height, width, 1)
+            Y0, Y1 shape: (batch_size, height, width, 1)
+            sample_weight shape: (batch_size, height, width, 1)
         """
         X = []
         Y0 = []
         Y1 = []
+        W = []  # Weights from mask
         eps = 1e-5
 
         if self.shuffle is False:
@@ -81,18 +84,20 @@ class DataGeneratorStream(Sequence):
 
         # Create all pairs in a given batch
         for i in range(self.batch_size):
-            # Retrieve a single sample pair
-            image, dendrite, spines = self.getSample()
+            # Retrieve a single sample pair with mask
+            image, dendrite, spines, mask = self.getSample()
 
             # Augmenting the data
             if self.augment:
                 augmented = self.aug(image=image, 
                     mask1=dendrite.astype(np.uint8), 
-                    mask2=spines.astype(np.uint8)) #augment image
+                    mask2=spines.astype(np.uint8),
+                    mask3=mask.astype(np.uint8)) #augment image
                 
                 image = augmented['image']
                 dendrite = augmented['mask1']
                 spines = augmented['mask2']
+                mask = augmented['mask3']
 
             # Min/max scaling
             image = (image.astype(np.float32) - image.min()) / (image.max() - image.min() + eps)
@@ -102,9 +107,10 @@ class DataGeneratorStream(Sequence):
             X.append(image)
             Y0.append(dendrite.astype(np.float32) / (dendrite.max() + eps))
             Y1.append(spines.astype(np.float32) / (spines.max() + eps)) # to ensure binary targets
+            W.append(mask.astype(np.float32))
 
         return np.asarray(X, dtype=np.float32)[..., None], (np.asarray(Y0, dtype=np.float32)[..., None],
-                np.asarray(Y1, dtype=np.float32)[..., None])
+                np.asarray(Y1, dtype=np.float32)[..., None]), np.asarray(W, dtype=np.float32)[..., None]
 
 
     def _get_augmenter(self):
@@ -119,7 +125,8 @@ class DataGeneratorStream(Sequence):
             A.GaussNoise(p=0.5)], p=1,
             additional_targets={
                 'mask1': 'mask',
-                'mask2': 'mask'
+                'mask2': 'mask',
+                'mask3': 'mask'
             })
         return aug
 
@@ -130,7 +137,7 @@ class DataGeneratorStream(Sequence):
             squeeze (bool, optional): if plane is 2D, skip 3D. Defaults to True.
 
         Returns:
-            list(np.ndarray, np.ndarray, np.ndarray): stack image with respective labels
+            tuple(np.ndarray, np.ndarray, np.ndarray, np.ndarray): stack image with respective labels and mask
         """
         while True:
             r = self._getSample(squeeze)
@@ -160,7 +167,7 @@ class DataGeneratorStream(Sequence):
             squeeze (bool, optional): Squeezes return shape. Defaults to True.
 
         Returns:
-            tuple: Tuple of stack (X), dendrite (Y0) and spines (Y1)
+            tuple: Tuple of stack (X), dendrite (Y0), spines (Y1), and mask (W)
         """
         # Adjust for 2 images
         if len(self.size) == 2:
@@ -221,6 +228,13 @@ class DataGeneratorStream(Sequence):
         tmp_stack = self.data['stacks'][f'x{r_stack}'][z_begin:z_end, y:y+h, x:x+w]
         tmp_dendrites = self.data['dendrites'][f'x{r_stack}'][z_begin:z_end, y:y+h, x:x+w]
         tmp_spines = self.data['spines'][f'x{r_stack}'][z_begin:z_end, y:y+h, x:x+w]
+        
+        # Get mask (2D, applies to all z-slices)
+        if 'masks' in self.data and f'x{r_stack}' in self.data['masks']:
+            tmp_mask = self.data['masks'][f'x{r_stack}'][y:y+h, x:x+w]
+        else:
+            # Default to all ground-truth if no mask provided
+            tmp_mask = np.ones((h, w), dtype=bool)
 
         # Data needs to be rescaled
         if scaling != 1:
@@ -239,14 +253,18 @@ class DataGeneratorStream(Sequence):
             return_dendrites = np.asarray(return_dendrites)
             return_spines = np.asarray(return_spines)
             
+            # Resize mask once (it's 2D)
+            return_mask = cv2.resize(tmp_mask.astype(np.uint8), (target_h, target_w)).astype(bool)
+            
         else:
             return_stack = tmp_stack
             return_dendrites = tmp_dendrites
             return_spines = tmp_spines
+            return_mask = tmp_mask
                 
         if squeeze:
-            # Return sample
-            return return_stack.squeeze(), return_dendrites.squeeze(), return_spines.squeeze()
+            # Return sample with mask
+            return return_stack.squeeze(), return_dendrites.squeeze(), return_spines.squeeze(), return_mask.squeeze()
         
         else:
-            return return_stack, return_dendrites, return_spines
+            return return_stack, return_dendrites, return_spines, return_mask

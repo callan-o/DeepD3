@@ -109,6 +109,14 @@ class Viewer(QWidget):
         self.overlay[:, :, 0] = self.d['dendrite'][idx].astype(np.uint8) * 255
         self.overlay[:, :, 2] = self.d['dendrite'][idx].astype(np.uint8) * 255
         self.overlay[:, :, 1] = self.d['spines'][idx].astype(np.uint8) * 255
+        
+        # If mask is present, show pseudolabel regions with reduced intensity
+        if 'mask' in self.d:
+            # Apply mask: where mask is 0 (pseudolabel), reduce overlay intensity
+            mask_alpha = self.d['mask'].astype(np.float32) * 0.5 + 0.5  # 0.5 for pseudolabel, 1.0 for ground truth
+            self.overlay[:, :, 0] = (self.overlay[:, :, 0] * mask_alpha).astype(np.uint8)
+            self.overlay[:, :, 1] = (self.overlay[:, :, 1] * mask_alpha).astype(np.uint8)
+            self.overlay[:, :, 2] = (self.overlay[:, :, 2] * mask_alpha).astype(np.uint8)
 
         self.overlayItem.setImage(self.overlay.transpose(1, 0, 2))
 
@@ -182,6 +190,7 @@ class Arrange(QWidget):
             stacks = {}
             dendrites = {}
             spines = {}
+            masks = {}
             meta = pd.DataFrame()
 
             # For each dataset, add to set
@@ -194,11 +203,18 @@ class Arrange(QWidget):
                 stacks[f"x{i}"] = d['data']['stack']
                 dendrites[f"x{i}"] = d['data']['dendrite']
                 spines[f"x{i}"] = d['data']['spines']
+                
+                # Add mask if present
+                if 'mask' in d['data']:
+                    masks[f"x{i}"] = d['data']['mask']
+                else:
+                    # Create a mask of all ones (all ground-truth) if no mask provided
+                    masks[f"x{i}"] = np.ones(d['data']['stack'].shape[1:], dtype=bool)
 
                 m = pd.DataFrame([d['meta']])
                 meta = pd.concat((meta, m), axis=0, ignore_index=True)     
 
-            fl.save(save_fn, dict(data=dict(stacks=stacks, dendrites=dendrites, spines=spines),
+            fl.save(save_fn, dict(data=dict(stacks=stacks, dendrites=dendrites, spines=spines, masks=masks),
                 meta=meta), compression='blosc')
 
             QMessageBox.information(self, "Saved!",
@@ -297,6 +313,7 @@ class addStackWidget(QWidget):
         self.stack = None
         self.dendrite     = None 
         self.spines     = None
+        self.mask     = None
 
         ##################
         # Stack
@@ -335,7 +352,19 @@ class addStackWidget(QWidget):
         self.selectSpinesBtn.setEnabled(False)
         l.addWidget(self.selectSpinesBtn, 8, 0, 1, 2)
 
-        l.addWidget(QLabel("Resolution"), 9, 0, 1, 2)
+        ##################
+        # Binary Mask (optional)
+        ##################
+        l.addWidget(QLabel("Binary Mask (optional)"), 9, 0, 1, 2)
+        self.fn_mask = QLabel("")
+        l.addWidget(self.fn_mask, 10, 0, 1, 2)
+        
+        self.selectMaskBtn = QPushButton("Select binary mask (2D)")
+        self.selectMaskBtn.clicked.connect(self.selectMask)
+        self.selectMaskBtn.setEnabled(False)
+        l.addWidget(self.selectMaskBtn, 11, 0, 1, 2)
+
+        l.addWidget(QLabel("Resolution"), 12, 0, 1, 2)
 
         self.res_xy = QLineEdit()
         self.res_xy.setValidator(QDoubleValidator())
@@ -345,66 +374,66 @@ class addStackWidget(QWidget):
         self.res_z.setValidator(QDoubleValidator())
         self.res_z.setPlaceholderText("Z, in microns, e.g. 0.5 for 500 nm step size")
 
-        l.addWidget(self.res_xy, 10, 0, 1, 2)
-        l.addWidget(self.res_z, 11, 0, 1, 2)
+        l.addWidget(self.res_xy, 13, 0, 1, 2)
+        l.addWidget(self.res_z, 14, 0, 1, 2)
 
-        l.addWidget(QLabel("Determine offsets using the ROI"), 13, 0, 1, 2)
+        l.addWidget(QLabel("Determine offsets using the ROI"), 16, 0, 1, 2)
 
         self.cropToROI = QCheckBox("Crop annotation to ROI")
         self.cropToROI.setChecked(True)
-        l.addWidget(self.cropToROI, 14, 0)
+        l.addWidget(self.cropToROI, 17, 0)
 
-        l.addWidget(QLabel("x"), 15, 0)
+        l.addWidget(QLabel("x"), 18, 0)
 
         self.offsets_x = QLineEdit("")
         self.offsets_x.setValidator(QIntValidator())
-        l.addWidget(self.offsets_x, 15, 1)
+        l.addWidget(self.offsets_x, 18, 1)
 
-        l.addWidget(QLabel("y"), 16, 0)
+        l.addWidget(QLabel("y"), 19, 0)
 
         self.offsets_y = QLineEdit("")
         self.offsets_y.setValidator(QIntValidator())
-        l.addWidget(self.offsets_y, 16, 1)
+        l.addWidget(self.offsets_y, 19, 1)
 
-        l.addWidget(QLabel("w"), 17, 0)
+        l.addWidget(QLabel("w"), 20, 0)
 
         self.offsets_w = QLineEdit("")
         self.offsets_w.setValidator(QIntValidator())
-        l.addWidget(self.offsets_w, 17, 1)
+        l.addWidget(self.offsets_w, 20, 1)
 
-        l.addWidget(QLabel("h"), 18, 0)
+        l.addWidget(QLabel("h"), 21, 0)
 
         self.offsets_h = QLineEdit("")
         self.offsets_h.setValidator(QIntValidator())
-        l.addWidget(self.offsets_h, 18, 1)
+        l.addWidget(self.offsets_h, 21, 1)
 
         self.zValidator = QIntValidator()
         self.zValidator.setRange(0, 1)
 
-        l.addWidget(QLabel("z (begin), shortcut B"), 19, 0)
+        l.addWidget(QLabel("z (begin), shortcut B"), 22, 0)
         self.offsets_z_begin = QLineEdit("")
         self.offsets_z_begin.setValidator(self.zValidator)
-        l.addWidget(self.offsets_z_begin, 19, 1)
+        l.addWidget(self.offsets_z_begin, 22, 1)
 
-        l.addWidget(QLabel("z (end), shortcut E"), 20, 0)
+        l.addWidget(QLabel("z (end), shortcut E"), 23, 0)
         self.offsets_z_end = QLineEdit("")
         self.offsets_z_end.setValidator(self.zValidator)
-        l.addWidget(self.offsets_z_end, 20, 1)
+        l.addWidget(self.offsets_z_end, 23, 1)
 
         self.progressbar = QProgressBar()
 
-        l.addWidget(self.progressbar, 21, 0, 1, 2)
+        l.addWidget(self.progressbar, 24, 0, 1, 2)
 
         saveBtn = QPushButton("Save annotation stack")
         saveBtn.clicked.connect(self.save)
-        l.addWidget(saveBtn, 22, 0, 1, 2)
+        l.addWidget(saveBtn, 25, 0, 1, 2)
 
 
         expand = QLabel()
         sizePolicy = QSizePolicy(QSizePolicy.Expanding , QSizePolicy.Expanding )
         expand.setSizePolicy(sizePolicy)
 
-        l.addWidget(expand, 24, 0)
+        l.addWidget(expand, 27, 0)
 
     def updateZ(self, a, b):
         """Updates z-level in stack
@@ -478,11 +507,18 @@ class addStackWidget(QWidget):
             stack = self.im[z_begin:z_end+1, y:y+h, x:x+w]
             dendrite = self.dendrite[z_begin:z_end+1, y:y+h, x:x+w]
             spines = self.spines[z_begin:z_end+1, y:y+h, x:x+w]
+            
+            # Crop the mask if provided (it's 2D, so we crop xy only)
+            if type(self.mask) != type(None):
+                mask = self.mask[y:y+h, x:x+w]
+            else:
+                mask = None
 
         else:
             stack = self.im[z_begin:z_end+1]
             dendrite = self.dendrite[z_begin:z_end+1]
             spines = self.spines[z_begin:z_end+1]
+            mask = self.mask
 
 
         data = {
@@ -490,6 +526,10 @@ class addStackWidget(QWidget):
             'dendrite': dendrite > 0,
             'spines': spines > 0
         }
+        
+        # Add mask to data if provided
+        if type(mask) != type(None):
+            data['mask'] = mask > 0
 
         meta = {
             'crop': self.cropToROI.isChecked(),
@@ -547,6 +587,7 @@ class addStackWidget(QWidget):
             ### Enable other buttons
             self.selectDendriteBtn.setEnabled(True)
             self.selectSpinesBtn.setEnabled(True)
+            self.selectMaskBtn.setEnabled(True)
 
             ### Add overlay
             # Prediction overlay
@@ -643,6 +684,23 @@ class addStackWidget(QWidget):
                 mask = np.asarray(io.mimread(fn, memtest=False))
 
             self.spines = mask
+
+    def selectMask(self):
+        """Select a binary mask (2D image indicating ground-truth vs pseudolabel)
+        """
+        fn = QFileDialog.getOpenFileName(caption="Select binary mask", filter="*.tif")[0]
+
+        if fn:
+            self.fn_mask.setText(fn)
+
+            # Load the mask as a 2D image
+            mask_2d = np.asarray(io.mimread(fn, memtest=False))
+            
+            # If it's a stack, take the first slice
+            if len(mask_2d.shape) == 3:
+                mask_2d = mask_2d[0]
+            
+            self.mask = mask_2d
 
 
 class Selector(QWidget):
