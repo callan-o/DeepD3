@@ -769,6 +769,8 @@ class addStackWidget(QWidget):
             else:
                 # Load a tif file
                 mask = np.asarray(io.mimread(fn, memtest=False))
+                # Convert to binary (boolean) if necessary
+                mask = mask > 0
 
             self.spines = mask
 
@@ -837,6 +839,8 @@ class addStackWidget(QWidget):
             else:
                 # Load a tif file
                 mask = np.asarray(io.mimread(fn, memtest=False))
+                # Convert to binary (boolean) if necessary
+                mask = mask > 0
 
             self.spines_pseudo = mask
 
