@@ -324,6 +324,10 @@ class addStackWidget(QWidget):
         ##################
         l.addWidget(QLabel("Stack"), 0, 0, 1, 2)
         self.fn_stack = QLabel()
+        self.fn_stack.setWordWrap(True)  # Enable line wrapping
+        self.fn_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.fn_stack.setMaximumWidth(250)
+        self.fn_stack.setTextInteractionFlags(Qt.TextSelectableByMouse)
         l.addWidget(self.fn_stack, 1, 0, 1, 2)
 
         l.addWidget(self.imv, 0, 2, 25, 1)
@@ -337,6 +341,10 @@ class addStackWidget(QWidget):
         ##################
         l.addWidget(QLabel("Dendrite tracings"), 3, 0, 1, 2)
         self.fn_d = QLabel("")
+        self.fn_d.setWordWrap(True)  # Enable line wrapping
+        self.fn_d.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.fn_d.setMaximumWidth(250)
+        self.fn_d.setTextInteractionFlags(Qt.TextSelectableByMouse)
         l.addWidget(self.fn_d, 4, 0, 1, 2)
         
         self.selectDendriteBtn = QPushButton("Select dendrite tracings")
@@ -349,6 +357,10 @@ class addStackWidget(QWidget):
         ##################
         l.addWidget(QLabel("Spines"), 6, 0, 1, 2)
         self.fn_s = QLabel("")
+        self.fn_s.setWordWrap(True)  # Enable line wrapping
+        self.fn_s.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.fn_s.setMaximumWidth(250)
+        self.fn_s.setTextInteractionFlags(Qt.TextSelectableByMouse)
         l.addWidget(self.fn_s, 7, 0, 1, 2)
         
         self.selectSpinesBtn = QPushButton("Select spine annotations")
@@ -361,6 +373,10 @@ class addStackWidget(QWidget):
         ##################
         l.addWidget(QLabel("Binary Mask (optional)"), 9, 0, 1, 2)
         self.fn_mask = QLabel("")
+        self.fn_mask.setWordWrap(True)  # Enable line wrapping
+        self.fn_mask.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.fn_mask.setMaximumWidth(250)
+        self.fn_mask.setTextInteractionFlags(Qt.TextSelectableByMouse)
         l.addWidget(self.fn_mask, 10, 0, 1, 2)
         
         self.selectMaskBtn = QPushButton("Select binary mask (2D)")
@@ -373,6 +389,10 @@ class addStackWidget(QWidget):
         ##################
         l.addWidget(QLabel("Pseudolabel Dendrite (optional)"), 12, 0, 1, 2)
         self.fn_d_pseudo = QLabel("")
+        self.fn_d_pseudo.setWordWrap(True)  # Enable line wrapping
+        self.fn_d_pseudo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.fn_d_pseudo.setMaximumWidth(250)
+        self.fn_d_pseudo.setTextInteractionFlags(Qt.TextSelectableByMouse)
         l.addWidget(self.fn_d_pseudo, 13, 0, 1, 2)
         
         self.selectDendritePseudoBtn = QPushButton("Select pseudolabel dendrite")
@@ -385,6 +405,10 @@ class addStackWidget(QWidget):
         ##################
         l.addWidget(QLabel("Pseudolabel Spines (optional)"), 15, 0, 1, 2)
         self.fn_s_pseudo = QLabel("")
+        self.fn_s_pseudo.setWordWrap(True)  # Enable line wrapping
+        self.fn_s_pseudo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.fn_s_pseudo.setMaximumWidth(250)
+        self.fn_s_pseudo.setTextInteractionFlags(Qt.TextSelectableByMouse)
         l.addWidget(self.fn_s_pseudo, 16, 0, 1, 2)
         
         self.selectSpinesPseudoBtn = QPushButton("Select pseudolabel spines")
