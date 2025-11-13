@@ -22,7 +22,7 @@ class Viewer(QWidget):
         super().__init__()
 
         self.fn = fn
-        self.d = fl.load(fn, "/data")
+        raw_data = fl.load(fn, "/data")
         
         # Try to load metadata, provide empty dict if not present
         try:
@@ -30,6 +30,26 @@ class Viewer(QWidget):
         except (ValueError, KeyError):
             # If meta doesn't exist, create an empty metadata dict
             self.m = {}
+
+        # Check if this is a d3set file (with 'stacks' plural) or d3data file (with 'stack' singular)
+        if 'stacks' in raw_data and 'stack' not in raw_data:
+            # This is a d3set file - extract the first dataset for viewing
+            first_key = list(raw_data['stacks'].keys())[0]
+            self.d = {
+                'stack': raw_data['stacks'][first_key],
+                'dendrite': raw_data['dendrites'][first_key],
+                'spines': raw_data['spines'][first_key],
+            }
+            # Add mask if present
+            if 'masks' in raw_data and first_key in raw_data['masks']:
+                self.d['mask'] = raw_data['masks'][first_key]
+            
+            # Update metadata to show the first dataset's metadata
+            if isinstance(self.m, pd.DataFrame) and len(self.m) > 0:
+                self.m = self.m.iloc[0].to_dict()
+        else:
+            # This is a d3data file with regular structure
+            self.d = raw_data
 
         self.l = QGridLayout(self)
         self.imv = pg.ImageView()
@@ -96,6 +116,10 @@ class Viewer(QWidget):
 
             elif t == np.int64 or t == np.int32: 
                 new_m[k] = int(v)
+            
+            # Handle string types - np.unicode_ was removed in NumPy 2.0, use np.str_ instead
+            elif t == np.str_ or (hasattr(np, 'unicode_') and t == np.unicode_):
+                new_m[k] = str(v)
 
             else:
                 new_m[k] = str(v) 
