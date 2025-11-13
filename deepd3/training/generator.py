@@ -23,7 +23,13 @@ class Viewer(QWidget):
 
         self.fn = fn
         self.d = fl.load(fn, "/data")
-        self.m = fl.load(fn, "/meta")
+        
+        # Try to load metadata, provide empty dict if not present
+        try:
+            self.m = fl.load(fn, "/meta")
+        except (ValueError, KeyError):
+            # If meta doesn't exist, create an empty metadata dict
+            self.m = {}
 
         self.l = QGridLayout(self)
         self.imv = pg.ImageView()
@@ -523,18 +529,30 @@ class addStackWidget(QWidget):
         if not fn:
             return
 
-        x = int(self.offsets_x.text())
-        y = int(self.offsets_y.text())
-        w = int(self.offsets_w.text())
-        h = int(self.offsets_h.text())
-        z_begin = int(self.offsets_z_begin.text())
-        z_end = int(self.offsets_z_end.text())
+        # Validate offset text fields before converting to int
+        try:
+            x = int(self.offsets_x.text()) if self.offsets_x.text() else 0
+            y = int(self.offsets_y.text()) if self.offsets_y.text() else 0
+            w = int(self.offsets_w.text()) if self.offsets_w.text() else 0
+            h = int(self.offsets_h.text()) if self.offsets_h.text() else 0
+            z_begin = int(self.offsets_z_begin.text()) if self.offsets_z_begin.text() else 0
+            z_end = int(self.offsets_z_end.text()) if self.offsets_z_end.text() else 0
+        except ValueError as e:
+            QMessageBox.critical(self, "Invalid offset values",
+                f"Please ensure all offset fields contain valid integer values.\nError: {e}")
+            return
 
         if x < 0:
             x = 0
 
         if y < 0:
             y = 0
+        
+        # Validate width and height
+        if w <= 0 or h <= 0:
+            QMessageBox.critical(self, "Invalid dimensions",
+                "Width and height must be greater than 0. Please adjust the ROI.")
+            return
 
         # Check for maximum size
         if x+w >= self.im.shape[2]:
@@ -546,6 +564,7 @@ class addStackWidget(QWidget):
         if z_end - z_begin < 0 or z_begin < 0 or z_end >= self.im.shape[0]:
             QMessageBox.critical(self, "Z span invalid",
             "Please check for z_begin and z_end.")
+            return
 
         try:
             res_xy = float(self.res_xy.text())
