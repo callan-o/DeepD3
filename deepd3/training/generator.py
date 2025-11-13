@@ -781,7 +781,7 @@ class addStackWidget(QWidget):
     def selectSpines(self):
         """Select a spine annotation
         """
-        fn = QFileDialog.getOpenFileName(caption="Select stack", filter="*.tif, *.mask")[0]
+        fn = QFileDialog.getOpenFileName(caption="Select stack", filter="*.tif; *.mask")[0]
 
         if fn:
             self.fn_s.setText(fn)
@@ -851,7 +851,7 @@ class addStackWidget(QWidget):
     def selectSpinesPseudo(self):
         """Select a pseudolabel spine annotation
         """
-        fn = QFileDialog.getOpenFileName(caption="Select pseudolabel spine stack", filter="*.tif, *.mask")[0]
+        fn = QFileDialog.getOpenFileName(caption="Select pseudolabel spine stack", filter="*.tif; *.mask")[0]
 
         if fn:
             self.fn_s_pseudo.setText(fn)
