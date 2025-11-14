@@ -1,0 +1,24 @@
+init:
+  mae_ckpt: checkpoints/mae2p/best.ckpt
+  freeze_blocks: 0
+model:
+  in_ch: 5
+  dim: 128
+  depth: 6
+  num_queries: 400
+  out_stride: 8
+optim:
+  lr: 6.0e-5
+  weight_decay: 0.05
+  epochs: 120
+  warmup_epochs: 5
+data:
+  train_manifest: manifests/finetune_train_pseudo.txt
+  val_manifest: manifests/val.txt
+  k_neighbors: 2
+  tile_hw: [64, 64]
+  batch_size: 4
+  use_pseudolabels: true
+log:
+  project: spine_seg
+  ckpt_dir: checkpoints/seg_v1

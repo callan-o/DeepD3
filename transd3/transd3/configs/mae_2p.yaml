@@ -1,0 +1,29 @@
+model:
+  in_ch: 5
+  dim: 128
+  depth: 6
+  patch: 8
+  mask_ratio: 0.7
+  num_heads: 8
+  grad_loss_weight: 0.1
+  vst_eps: 1.0e-3
+  stem_imagenet_model: resnet50.a1_in1k
+  stem_weight_strategy: avg
+optim:
+  lr: 1.0e-4
+  weight_decay: 0.05
+  max_epochs: 400
+data:
+  k_neighbors: 2
+  tile_hw: [128, 128]
+  tile_stride: [128, 128]
+  train_manifest: manifests/train.txt
+  val_manifest: manifests/val.txt
+  batch_size: 512
+  num_workers: 4
+  prefetch_factor: 2
+  max_tiles_per_volume: 512
+  max_tiles_total: 20000
+log:
+  project: spine_seg
+  ckpt_dir: checkpoints/mae2p

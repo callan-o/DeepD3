@@ -1,0 +1,19 @@
+model:
+  in_ch: 5
+  dim: 128
+  depth: 6
+  patch: 8
+  lam_n2v: 0.5
+optim:
+  lr: 1.0e-4
+  weight_decay: 0.05
+  max_epochs: 300
+data:
+  k_neighbors: 2
+  tile_hw: [256, 256]
+  train_manifest: manifests/train.txt
+  val_manifest: manifests/val.txt
+  batch_size: 8
+log:
+  project: transd3
+  ckpt_dir: checkpoints/pretrain_mix
