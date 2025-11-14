@@ -19,7 +19,7 @@ setup(
         "pyqtgraph>=0.10.0",
         "numpy",
         "numba",
-        "flammkuchen",
+        "flammkuchen @ git+https://github.com/portugueslab/flammkuchen.git@f9a3878",
         "pyqt5",
         "scikit-image",
         "imageio",
