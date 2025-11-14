@@ -118,7 +118,8 @@ class Viewer(QWidget):
                 new_m[k] = int(v)
             
             # Handle string types - np.unicode_ was removed in NumPy 2.0, use np.str_ instead
-            elif t == np.str_ or (hasattr(np, 'unicode_') and t == np.unicode_):
+            # Check for numpy string types without directly accessing np.unicode_
+            elif t == np.str_ or (hasattr(t, '__name__') and 'str' in t.__name__.lower()):
                 new_m[k] = str(v)
 
             else:
