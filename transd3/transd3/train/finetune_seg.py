@@ -163,7 +163,7 @@ def main() -> None:
         batch_size=cfg.data.get("batch_size", 4),
         num_workers=cfg.data.get("num_workers", 8),
         k_neighbors=cfg.data.get("k_neighbors", 2),
-        tile_hw=tuple(cfg.data.get("tile_hw", [256, 256])),
+        tile_hw=tuple(cfg.data.get("tile_hw", [128, 128])),
         ssl_mode=False,
         use_pseudolabels=cfg.data.get("use_pseudolabels", False),
     )

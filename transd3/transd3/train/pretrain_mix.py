@@ -49,8 +49,8 @@ class LitMAEN2VMix(pl.LightningModule):
         self.n2v = LitNoise2Void(in_ch=mae_cfg.in_ch)
         self.lam_n2v = lam_n2v
 
-    def forward(self, x: torch.Tensor):  # pragma: no cover
-        return self.mae(x)
+    def forward(self, x: torch.Tensor, voxel_size: torch.Tensor | None = None):  # pragma: no cover
+        return self.mae(x, voxel_size)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         loss_mae = self.mae.training_step(batch, batch_idx)
@@ -87,7 +87,7 @@ def main() -> None:
         batch_size=cfg.data.get("batch_size", 8),
         num_workers=cfg.data.get("num_workers", 8),
         k_neighbors=cfg.data.get("k_neighbors", 2),
-        tile_hw=tuple(cfg.data.get("tile_hw", [256, 256])),
+        tile_hw=tuple(cfg.data.get("tile_hw", [128, 128])),
         ssl_mode=True,
     )
     datamodule = SpineDataModule(data_cfg)

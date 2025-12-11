@@ -78,6 +78,7 @@ class TwoPhotonStackDataset(Dataset):
         if not self.volume_paths:
             raise ValueError("Manifest did not yield any volume paths")
         rng.shuffle(self.volume_paths)
+        self.volume_metadata = {path: load_volume_metadata(path) for path in self.volume_paths}
 
         self.tile_index: List[TileCoordinate] = []
         for path in self.volume_paths:
@@ -157,6 +158,7 @@ class TwoPhotonStackDataset(Dataset):
         item: Dict[str, torch.Tensor] = {
             "image": torch.from_numpy(image.astype(np.float32)),
             "meta": torch.tensor([coord.z_index, coord.y0, coord.x0], dtype=torch.int32),
+            "voxel_size": torch.tensor(self._voxel_size_xyz(coord.volume_path), dtype=torch.float32),
         }
 
         if not self.ssl_mode:
@@ -220,12 +222,42 @@ class TwoPhotonStackDataset(Dataset):
 
         return label_dict
 
+    def _voxel_size_xyz(self, volume_path: Path) -> Tuple[float, float, float]:
+        """Return voxel size in microns ordered as (X, Y, Z) with safe defaults."""
+        meta = self.volume_metadata.get(volume_path) or {}
+        voxel_size = meta.get("voxel_size_um") if isinstance(meta, dict) else None
+        try:
+            arr = np.asarray(voxel_size, dtype=np.float32).reshape(-1)
+        except Exception:
+            arr = np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
+        if arr.size != 3:
+            arr = np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
+        # Stored order is typically (Z, Y, X); return (X, Y, Z) for consistency.
+        x, y, z = float(arr[2]), float(arr[1]), float(arr[0])
+        return (x, y, z)
+
 
 def load_volume_metadata(volume_path: Path) -> Dict[str, object]:
-    """Utility to read ``meta.json`` from a volume (if present)."""
+    """Utility to read ``meta.json`` and fall back to Zarr attrs when present."""
 
+    meta: Dict[str, object] = {}
     meta_path = Path(volume_path) / "meta.json"
-    if not meta_path.exists():
-        return {}
-    with meta_path.open("r") as f:
-        return json.load(f)
+    if meta_path.exists():
+        with meta_path.open("r") as f:
+            try:
+                meta = json.load(f)
+            except json.JSONDecodeError:
+                meta = {}
+
+    try:
+        grp = zarr.open_group(str(volume_path), mode="r")
+        raw = grp.get("raw")
+        if raw is not None:
+            attrs = getattr(raw, "attrs", {})
+            attr_voxel = attrs.get("voxel_size_um")
+            if attr_voxel is not None and "voxel_size_um" not in meta:
+                meta["voxel_size_um"] = attr_voxel
+    except Exception:  # pragma: no cover - defensive against missing files
+        pass
+
+    return meta

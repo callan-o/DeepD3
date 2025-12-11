@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import importlib
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+MICRONS_PER_CENTIMETER = 1.0e4
+MICRONS_PER_INCH = 2.54e4
 
 try:  # pragma: no cover - external dependencies
     tifffile = importlib.import_module("tifffile")
@@ -65,28 +68,174 @@ def zarr_compressor() -> Any:
 
 
 def chunk_shape(shape: Sequence[int]) -> Sequence[int]:
-    z, y, x = shape
+    if len(shape) < 2:
+        raise ValueError(f"Expected at least 2 spatial dimensions, got shape={shape}")
+    y = int(shape[-2])
+    x = int(shape[-1])
+    if len(shape) == 2:
+        z = 1
+    else:
+        z = int(np.prod(shape[:-2]))
     return (1, min(256, y), min(256, x))
 
 
+def coerce_spatial_volume(volume: np.ndarray) -> np.ndarray:
+    """Return a contiguous (Z, Y, X) view by flattening non-spatial axes."""
+
+    if volume.ndim < 2:
+        raise ValueError(f"Volume must have at least 2 dimensions, got shape={volume.shape}")
+    if volume.ndim == 2:
+        volume = volume[np.newaxis, ...]
+    elif volume.ndim > 3:
+        y, x = volume.shape[-2], volume.shape[-1]
+        z = int(np.prod(volume.shape[:-2]))
+        volume = volume.reshape(z, y, x)
+    return np.ascontiguousarray(volume)
+
+
+def _value_to_float(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except Exception:
+        pass
+    try:
+        num, den = value
+        if float(den) == 0:
+            return None
+        return float(num) / float(den)
+    except Exception:
+        return None
+
+
+def _unit_scale_microns(unit: Any) -> Optional[float]:
+    if unit is None:
+        return None
+    if hasattr(unit, "value"):
+        unit = unit.value
+    if hasattr(unit, "name"):
+        name = unit.name.lower()
+        if "centimeter" in name:
+            return MICRONS_PER_CENTIMETER
+        if "inch" in name:
+            return MICRONS_PER_INCH
+    if isinstance(unit, str):
+        low = unit.lower()
+        if "centimeter" in low:
+            return MICRONS_PER_CENTIMETER
+        if "inch" in low:
+            return MICRONS_PER_INCH
+    if isinstance(unit, int):
+        if unit == 3:  # TIFF RESUNIT.CENTIMETER
+            return MICRONS_PER_CENTIMETER
+        if unit == 2:  # TIFF RESUNIT.INCH
+            return MICRONS_PER_INCH
+    return None
+
+
+def _resolution_tag_to_um(page: Any, axis: str) -> Optional[float]:
+    tag_name = f"{axis.upper()}Resolution"
+    tag = page.tags.get(tag_name) if hasattr(page, "tags") else None
+    if tag is None:
+        return None
+    pixels_per_unit = _value_to_float(getattr(tag, "value", None))
+    if pixels_per_unit in (None, 0):
+        return None
+    unit_tag = page.tags.get("ResolutionUnit") if hasattr(page, "tags") else None
+    unit_value = getattr(unit_tag, "value", None) if unit_tag is not None else getattr(page, "resolutionunit", None)
+    scale = _unit_scale_microns(unit_value)
+    if scale is None:
+        return None
+    return scale / pixels_per_unit
+
+
+def _imagej_spacing_um(tif: Any) -> Optional[float]:
+    meta = getattr(tif, "imagej_metadata", None)
+    if not isinstance(meta, dict):
+        return None
+    spacing = meta.get("spacing")
+    try:
+        spacing_val = float(spacing)
+    except Exception:
+        return None
+    unit = str(meta.get("unit", "")).lower()
+    if "micron" in unit or unit == "um":
+        return spacing_val
+    return None
+
+
+def _parse_voxel_size_line(description: Optional[str]) -> Optional[Tuple[float, float, float]]:
+    if not description:
+        return None
+    for line in description.splitlines():
+        stripped = line.strip()
+        if not stripped.lower().startswith("voxel size"):
+            continue
+        payload = stripped.split(":", 1)
+        if len(payload) != 2:
+            continue
+        tokens = payload[1].strip().split()
+        if not tokens:
+            continue
+        numeric_block = tokens[0].replace(",", "x")
+        parts = [p for p in numeric_block.split("x") if p]
+        values: List[float] = []
+        for part in parts:
+            try:
+                values.append(float(part))
+            except ValueError:
+                continue
+        if values:
+            while len(values) < 3:
+                values.append(values[-1])
+            return float(values[0]), float(values[1]), float(values[2])
+    return None
+
+
+def infer_voxel_size_xyz(tif: Any) -> Tuple[float, float, float]:
+    page0 = tif.pages[0]
+    description = getattr(page0, "description", None)
+    desc_values = _parse_voxel_size_line(description)
+    x_um = _resolution_tag_to_um(page0, "X")
+    y_um = _resolution_tag_to_um(page0, "Y")
+    z_um = _imagej_spacing_um(tif)
+    if desc_values is not None:
+        dx, dy, dz = desc_values
+        x_um = x_um or dx
+        y_um = y_um or dy
+        z_um = z_um or dz
+    if x_um is None:
+        x_um = 1.0
+    if y_um is None:
+        y_um = x_um
+    if z_um is None:
+        z_um = 1.0
+    return float(x_um), float(y_um), float(z_um)
+
+
 def convert_tiff(path: Path, dst_root: Path) -> Path:
-    volume = tifffile.imread(path)
-    volume = np.asarray(volume, dtype=np.float32)
+    with tifffile.TiffFile(path) as tif:
+        volume = tif.asarray().astype(np.float32)
+        volume = coerce_spatial_volume(volume)
+        voxel_xyz = infer_voxel_size_xyz(tif)
+
     dst = dst_root / f"{path.stem}.zarr"
     root = zarr.open_group(str(dst), mode="w")
     comp = zarr_compressor()
-    root.create_array(
+    raw = root.create_array(
         "raw",
         data=volume,
         chunks=chunk_shape(volume.shape),
         compressors=[comp],
     )
+
+    voxel_meta = [voxel_xyz[2], voxel_xyz[1], voxel_xyz[0]]  # store as (Z, Y, X)
+    raw.attrs["voxel_size_um"] = voxel_meta
     write_json(
         dst / "meta.json",
         {
             "source": str(path.resolve()),
-            "voxel_size_um": [1.0, 1.0, 1.0],
-            "notes": "Default voxel size used; update if known.",
+            "voxel_size_um": voxel_meta,
+            "voxel_size_source": "tiff-metadata",
         },
     )
     return dst

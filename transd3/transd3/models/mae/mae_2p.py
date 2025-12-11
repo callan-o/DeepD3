@@ -27,6 +27,7 @@ class MAEConfig:
     vst_eps: float = 1.0e-3
     stem_imagenet_model: Optional[str] = "resnet50.a1_in1k"
     stem_weight_strategy: str = "avg"
+    use_voxel_conditioning: bool = True
 
 
 class MaskedAutoencoder2P(nn.Module):
@@ -58,6 +59,21 @@ class MaskedAutoencoder2P(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, cfg.dim, 1, 1))
         nn.init.trunc_normal_(self.mask_token, std=0.02)
 
+        self.use_voxel_conditioning = bool(cfg.use_voxel_conditioning)
+        if self.use_voxel_conditioning:
+            self.cond_norm = nn.LayerNorm(3)
+            self.cond_proj = nn.Sequential(
+                nn.Linear(3, cfg.dim),
+                nn.SiLU(inplace=True),
+                nn.Linear(cfg.dim, cfg.dim),
+            )
+            self.cond_scale = nn.Linear(cfg.dim, cfg.dim)
+            self.cond_shift = nn.Linear(cfg.dim, cfg.dim)
+            nn.init.zeros_(self.cond_scale.weight)
+            nn.init.zeros_(self.cond_scale.bias)
+            nn.init.zeros_(self.cond_shift.weight)
+            nn.init.zeros_(self.cond_shift.bias)
+
         self.encoder = ViTAxialEncoder(dim=cfg.dim, depth=cfg.depth, num_heads=cfg.num_heads)
         self.decoder = nn.Sequential(
             nn.Conv2d(cfg.dim, cfg.dim, kernel_size=3, padding=1),
@@ -77,7 +93,7 @@ class MaskedAutoencoder2P(nn.Module):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    def forward(self, x: torch.Tensor, voxel_size: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, Any]]:
         stem_feats = self.stem(x)
         b, _, h, w = stem_feats.shape
         if h % self.patch_cells != 0 or w % self.patch_cells != 0:
@@ -86,7 +102,14 @@ class MaskedAutoencoder2P(nn.Module):
         hp = h // self.patch_cells
         wp = w // self.patch_cells
         mask = self._generate_mask(b, hp * wp, device=x.device).view(b, hp, wp)
-        masked_feats = self._apply_patch_mask(stem_feats, mask)
+        mask_token = self.mask_token.expand(b, -1, -1, -1)
+
+        if self.use_voxel_conditioning:
+            scale, shift = self._encode_condition(voxel_size, batch_size=b, device=x.device)
+            stem_feats = self._apply_scale_shift(stem_feats, scale, shift)
+            mask_token = self._apply_scale_shift(mask_token, scale, shift)
+
+        masked_feats = self._apply_patch_mask(stem_feats, mask, mask_token)
 
         encoded = self.encoder(masked_feats)
         recon = self.decoder(encoded)
@@ -99,7 +122,7 @@ class MaskedAutoencoder2P(nn.Module):
         }
         return recon, aux
 
-    def _apply_patch_mask(self, feats: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def _apply_patch_mask(self, feats: torch.Tensor, mask: torch.Tensor, mask_token: torch.Tensor) -> torch.Tensor:
         b, c, h, w = feats.shape
         hp, wp = mask.shape[1], mask.shape[2]
         feats_view = feats.view(b, c, hp, self.patch_cells, wp, self.patch_cells)
@@ -107,11 +130,33 @@ class MaskedAutoencoder2P(nn.Module):
         mask_expanded = mask.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
         masked = torch.where(
             mask_expanded.bool(),
-            self.mask_token.view(1, 1, 1, -1, 1, 1),
+            mask_token.reshape(b, 1, 1, c, 1, 1),
             feats_view,
         )
         masked = masked.permute(0, 3, 1, 4, 2, 5).reshape(b, c, h, w)
         return masked
+
+    def _encode_condition(
+        self, voxel_size: Optional[torch.Tensor], batch_size: int, device: torch.device
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        cond = torch.zeros(batch_size, 3, device=device, dtype=self.mask_token.dtype)
+        if voxel_size is not None:
+            cond = voxel_size.to(device=device, dtype=self.mask_token.dtype)
+            if cond.dim() == 1:
+                cond = cond.view(1, -1).expand(batch_size, -1)
+            elif cond.shape[0] == 1 and batch_size > 1:
+                cond = cond.expand(batch_size, -1)
+        cond = torch.log1p(cond.clamp_min(1.0e-6))
+        cond = self.cond_norm(cond)
+        cond_embed = self.cond_proj(cond)
+        scale = self.cond_scale(cond_embed)
+        shift = self.cond_shift(cond_embed)
+        return scale, shift
+
+    def _apply_scale_shift(self, feats: torch.Tensor, scale: torch.Tensor, shift: torch.Tensor) -> torch.Tensor:
+        scale_view = scale.view(feats.shape[0], feats.shape[1], 1, 1)
+        shift_view = shift.view(feats.shape[0], feats.shape[1], 1, 1)
+        return feats * (1 + scale_view) + shift_view
 
     def _generate_mask(self, batch: int, num_tokens: int, device: torch.device) -> torch.Tensor:
         num_mask = max(1, int(num_tokens * self.cfg.mask_ratio))
@@ -132,11 +177,11 @@ class LitMAE2P(pl.LightningModule):
         self.cfg = cfg
         self.optim_cfg = optim_cfg or {"lr": 1.0e-4, "weight_decay": 0.05, "max_epochs": 100}
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, Any]]:  # pragma: no cover
-        return self.model(x)
+    def forward(self, x: torch.Tensor, voxel_size: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, Any]]:  # pragma: no cover
+        return self.model(x, voxel_size)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        recon, aux = self(batch["image"])
+        recon, aux = self(batch["image"], batch.get("voxel_size"))
         mask = aux["mask"]
         loss_vst = self._mae_loss(recon, batch["image"], mask)
         loss_grad = self._grad_loss(recon, batch["image"], mask)
@@ -148,7 +193,7 @@ class LitMAE2P(pl.LightningModule):
         return loss
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        recon, aux = self(batch["image"])
+        recon, aux = self(batch["image"], batch.get("voxel_size"))
         mask = aux["mask"]
         loss_vst = self._mae_loss(recon, batch["image"], mask)
         loss_grad = self._grad_loss(recon, batch["image"], mask)

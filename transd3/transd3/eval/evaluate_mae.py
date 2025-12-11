@@ -130,7 +130,10 @@ def evaluate(model: LitMAE2P, dataloader: torch.utils.data.DataLoader, max_batch
     progress = tqdm(enumerate(dataloader, start=1), total=len(dataloader) if hasattr(dataloader, "__len__") else None, desc="Evaluating", leave=False)
     for batch_idx, batch in progress:
         images = batch["image"].to(model.device)
-        recon, aux = model(images)
+        voxel_size = batch.get("voxel_size")
+        if voxel_size is not None:
+            voxel_size = voxel_size.to(model.device)
+        recon, aux = model(images, voxel_size)
         mask = aux.get("mask")
         if mask is None:
             mask = torch.zeros_like(images[:, 0:1, ...], dtype=torch.bool, device=images.device)
@@ -215,6 +218,7 @@ def main() -> None:
             args.checkpoint,
             cfg=mae_cfg,
             map_location="cpu",
+            strict=False,
         )
     except Exception as exc:  # pragma: no cover - compatibility fallback
         print(f"Checkpoint load_with_strict failed ({exc}), attempting non-strict state_dict load.")

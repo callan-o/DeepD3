@@ -58,7 +58,7 @@ def main() -> None:
         batch_size=cfg.data.get("batch_size", 8),
         num_workers=cfg.data.get("num_workers", 8),
         k_neighbors=cfg.data.get("k_neighbors", 2),
-        tile_hw=tuple(cfg.data.get("tile_hw", [256, 256])),
+        tile_hw=tuple(cfg.data.get("tile_hw", [128, 128])),
         tile_stride=tuple(cfg.data.tile_stride) if cfg.data.get("tile_stride") else None,
         ssl_mode=True,
         use_pseudolabels=cfg.data.get("use_pseudolabels", False),
