@@ -1,4 +1,57 @@
-"""Convert DeepD3 raw data (TIF or .d3set) into the TransD3 Zarr schema."""
+"""Convert DeepD3 raw data (TIFF stacks or DeepD3 ``.d3set`` files) into TransD3 Zarr.
+
+This script converts DeepD3-style assets into a common Zarr layout used by TransD3.
+
+**Supported inputs (top-level files in ``--src``)**
+
+- ``.tif`` / ``.tiff``: Single volumetric stack. Output is one Zarr group:
+
+    - ``<stem>.zarr/raw`` (float32)
+    - ``<stem>.zarr/meta.json`` (JSON metadata)
+
+- ``.d3set``: DeepD3 HDF5 dataset. Output is one Zarr group per sample in
+    ``/data/stacks``:
+
+    - ``<d3set-stem>_<sample>.zarr/raw`` (float32)
+    - ``.../labels/shafts_semantic`` (uint8, may be zeros if missing)
+    - ``.../labels/spines_instance`` (int32, may be zeros if missing)
+    - ``.../meta.json`` (JSON metadata)
+
+The output directory also contains an ``index.txt`` manifest with absolute paths
+to each converted ``.zarr`` group.
+
+**Voxel size inference (TIFF)**
+
+For TIFF files, voxel size is inferred from (in priority order):
+
+1) A line starting with ``Voxel size:`` in the TIFF description (if present)
+2) TIFF resolution tags (X/Y resolution + resolution unit)
+3) ImageJ metadata (``spacing`` + ``unit``) for Z spacing
+
+The voxel size is stored as ``voxel_size_um`` in both Zarr attrs (on ``raw``)
+and in ``meta.json`` as a (Z, Y, X) triple.
+
+Examples
+--------
+
+Convert a folder of TIFF stacks:
+
+        python -m transd3.scripts.convert_deepd3_to_zarr \
+                --src /path/to/tiffs \
+                --dst /path/to/output_zarr
+
+Convert the MAE-processed dataset in this workspace:
+
+        python /scratch/gpfs/WANG/callan/DeepD3/transd3/transd3/scripts/convert_deepd3_to_zarr.py \
+                --src /scratch/gpfs/WANG/callan/mae_processed \
+                --dst /scratch/gpfs/WANG/callan/DeepD3/datasets/mae_processed
+
+Dependencies
+------------
+
+Required: ``tifffile``, ``zarr``, ``h5py``, and a Blosc codec via
+``zarr[codecs]`` or ``numcodecs``.
+"""
 
 from __future__ import annotations
 
@@ -41,11 +94,26 @@ BITSHUFFLE = getattr(NUMCODECS_BLOSC, "BITSHUFFLE", 2)
 from transd3.spine_data.utils_io import write_json
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Convert DeepD3 TIFF stacks or .d3set files into the TransD3 Zarr schema.",
+        epilog=(
+            "Notes:\n"
+            "- This script scans only the top-level of --src for files ending in .tif/.tiff/.d3set.\n"
+            "- Output Zarr groups are created directly under --dst and a manifest index.txt is written.\n"
+            "\n"
+            "Example:\n"
+            "  python transd3/scripts/convert_deepd3_to_zarr.py --src /data --dst /out\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--src", type=Path, required=True, help="Directory containing DeepD3 assets.")
+    parser.add_argument("--dst", type=Path, required=True, help="Output directory for Zarr groups.")
+    return parser
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--src", type=Path, required=True, help="Directory with DeepD3 assets")
-    parser.add_argument("--dst", type=Path, required=True, help="Output directory for Zarr groups")
-    return parser.parse_args()
+    return build_parser().parse_args()
 
 
 def find_inputs(src: Path) -> List[Path]:
