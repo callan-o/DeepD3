@@ -36,11 +36,14 @@ class LitNoise2Void(pl.LightningModule):
         self.lr = lr
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        noisy = batch["image"]
-        pred = self.model(noisy)
-        loss = torch.mean((pred - noisy) ** 2)
+        loss = self.compute_loss(batch)
         self.log("train/n2v_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         return loss
+
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        noisy = batch["image"]
+        pred = self.model(noisy)
+        return torch.mean((pred - noisy) ** 2)
 
     def configure_optimizers(self):  # pragma: no cover
         return torch.optim.Adam(self.parameters(), lr=self.lr)

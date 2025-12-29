@@ -138,3 +138,7 @@ examples/Training DeepD3 model UNet.ipynb
 
 # Wandb files
 wandb
+
+# Datasets and model checkpoints
+datasets/
+checkpoints/

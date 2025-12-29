@@ -7,13 +7,13 @@ model:
 optim:
   lr: 1.0e-4
   weight_decay: 0.05
-  max_epochs: 300
+  max_epochs: 50
 data:
   k_neighbors: 2
-  tile_hw: [256, 256]
+  tile_hw: [128, 128]
   train_manifest: manifests/train.txt
   val_manifest: manifests/val.txt
-  batch_size: 8
+  batch_size: 1024
 log:
   project: transd3
   ckpt_dir: checkpoints/pretrain_mix

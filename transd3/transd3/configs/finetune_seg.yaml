@@ -16,7 +16,7 @@ data:
   train_manifest: manifests/finetune_train_pseudo.txt
   val_manifest: manifests/val.txt
   k_neighbors: 2
-  tile_hw: [64, 64]
+  tile_hw: [128, 128]
   batch_size: 4
   use_pseudolabels: true
 log:

@@ -3,27 +3,38 @@ model:
   dim: 128
   depth: 6
   patch: 8
-  mask_ratio: 0.7
+  mask_ratio: 0.65
   num_heads: 8
   grad_loss_weight: 0.1
   vst_eps: 1.0e-3
   stem_imagenet_model: resnet50.a1_in1k
   stem_weight_strategy: avg
+  lam_n2v: 0.5
 optim:
   lr: 1.0e-4
   weight_decay: 0.05
-  max_epochs: 400
+  max_epochs: 100
 data:
   k_neighbors: 2
   tile_hw: [128, 128]
   tile_stride: [128, 128]
   train_manifest: manifests/train.txt
   val_manifest: manifests/val.txt
-  batch_size: 512
-  num_workers: 4
-  prefetch_factor: 2
+  batch_size: 1024
+  num_workers: 8
+  prefetch_factor: 1
   max_tiles_per_volume: 512
-  max_tiles_total: 20000
+  max_tiles_total: 300000
+  pin_memory: true
+  persistent_workers: true
 log:
   project: spine_seg
-  ckpt_dir: checkpoints/mae2p
+  ckpt_dir: checkpoints/mae2p/processed
+trainer:
+  accelerator: gpu
+  strategy: ddp
+  devices: auto
+  num_nodes: 1
+  precision: bf16-mixed
+  benchmark: true
+  gradient_clip_val: 1.0

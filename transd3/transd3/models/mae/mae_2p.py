@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import warnings
 from typing import Any, Dict, Optional, Tuple
 
@@ -28,6 +29,7 @@ class MAEConfig:
     stem_imagenet_model: Optional[str] = "resnet50.a1_in1k"
     stem_weight_strategy: str = "avg"
     use_voxel_conditioning: bool = True
+    stem_weights_path: Optional[str] = None
 
 
 class MaskedAutoencoder2P(nn.Module):
@@ -48,6 +50,9 @@ class MaskedAutoencoder2P(nn.Module):
                     model_name=cfg.stem_imagenet_model,
                     in_channels=cfg.in_ch,
                     channel_strategy=cfg.stem_weight_strategy,
+                    checkpoint_path=Path(cfg.stem_weights_path).expanduser()
+                    if cfg.stem_weights_path
+                    else None,
                 )
             except ImportError as exc:
                 warnings.warn(
@@ -180,28 +185,36 @@ class LitMAE2P(pl.LightningModule):
     def forward(self, x: torch.Tensor, voxel_size: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, Any]]:  # pragma: no cover
         return self.model(x, voxel_size)
 
-    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def compute_losses(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         recon, aux = self(batch["image"], batch.get("voxel_size"))
-        mask = aux["mask"]
+        mask = aux.get("mask")
+        if mask is None:
+            mask = torch.zeros_like(batch["image"][..., :1, :, :], dtype=torch.bool)
         loss_vst = self._mae_loss(recon, batch["image"], mask)
         loss_grad = self._grad_loss(recon, batch["image"], mask)
         loss = loss_vst + self.cfg.grad_loss_weight * loss_grad
-        self.log("train/loss", loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log("train/loss_vst", loss_vst, on_epoch=True)
-        self.log("train/loss_grad", loss_grad, on_epoch=True)
-        self.log("train/mask_ratio", aux["mask_ratio"], on_epoch=True)
-        return loss
+        metrics = {
+            "loss": loss,
+            "loss_vst": loss_vst,
+            "loss_grad": loss_grad,
+            "mask_ratio": aux.get("mask_ratio", mask.float().mean()),
+        }
+        return metrics
+
+    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        metrics = self.compute_losses(batch)
+        self.log("train/loss", metrics["loss"], prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train/loss_vst", metrics["loss_vst"], on_epoch=True)
+        self.log("train/loss_grad", metrics["loss_grad"], on_epoch=True)
+        self.log("train/mask_ratio", metrics["mask_ratio"], on_epoch=True)
+        return metrics["loss"]
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        recon, aux = self(batch["image"], batch.get("voxel_size"))
-        mask = aux["mask"]
-        loss_vst = self._mae_loss(recon, batch["image"], mask)
-        loss_grad = self._grad_loss(recon, batch["image"], mask)
-        loss = loss_vst + self.cfg.grad_loss_weight * loss_grad
-        self.log("val/loss", loss, prog_bar=True, on_epoch=True)
-        self.log("val/loss_vst", loss_vst, on_epoch=True)
-        self.log("val/loss_grad", loss_grad, on_epoch=True)
-        self.log("val/mask_ratio", aux["mask_ratio"], on_epoch=True)
+        metrics = self.compute_losses(batch)
+        self.log("val/loss", metrics["loss"], prog_bar=True, on_epoch=True)
+        self.log("val/loss_vst", metrics["loss_vst"], on_epoch=True)
+        self.log("val/loss_grad", metrics["loss_grad"], on_epoch=True)
+        self.log("val/mask_ratio", metrics["mask_ratio"], on_epoch=True)
 
     def configure_optimizers(self):  # pragma: no cover - Lightning handles testing
         lr = self.optim_cfg.get("lr", 1.0e-4)

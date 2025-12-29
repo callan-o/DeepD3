@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import math
 import warnings
+import os
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import torch
@@ -13,6 +15,7 @@ from torch import nn
 
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_LOCAL_STEM_WEIGHTS = Path("/scratch/gpfs/WANG/callan/hf_models/model.safetensors")
 
 
 class ConvStem(nn.Module):
@@ -44,6 +47,7 @@ def load_imagenet_conv_stem(
     model_name: str,
     in_channels: int,
     channel_strategy: str = "avg",
+    checkpoint_path: Optional[Path | str] = None,
 ) -> None:
     """Load ImageNet pretrained weights from timm into ``ConvStem``.
 
@@ -69,16 +73,36 @@ def load_imagenet_conv_stem(
     except ImportError as exc:  # pragma: no cover - dependency warning
         raise ImportError("timm is required to load ImageNet weights for ConvStem") from exc
 
-    try:
-        state_dict = timm.create_model(model_name, pretrained=True).state_dict()
-    except Exception as exc:  # pragma: no cover - network/cache failures
-        warnings.warn(
-            "Failed to load pretrained ConvStem weights from timm; proceeding with random init. "
-            "Set model.stem_imagenet_model=null to disable this attempt."
-            f" (reason: {exc})",
-            RuntimeWarning,
-        )
-        return
+    local_candidates: List[Path] = []
+    if checkpoint_path:
+        local_candidates.append(Path(checkpoint_path).expanduser())
+    env_candidate = os.environ.get("TRANSD3_STEM_WEIGHTS")
+    if env_candidate:
+        local_candidates.append(Path(env_candidate).expanduser())
+    if DEFAULT_LOCAL_STEM_WEIGHTS.exists():
+        local_candidates.append(DEFAULT_LOCAL_STEM_WEIGHTS)
+
+    state_dict: Optional[Dict[str, torch.Tensor]] = None
+    for candidate in local_candidates:
+        if candidate.is_file():
+            try:
+                state_dict = _load_state_dict_from_path(candidate)
+                LOGGER.info("Loaded ConvStem weights from %s", candidate)
+                break
+            except Exception as exc:  # pragma: no cover - corrupted file fallback
+                warnings.warn(f"Failed to load ConvStem weights from {candidate}: {exc}", RuntimeWarning)
+
+    if state_dict is None:
+        try:
+            state_dict = timm.create_model(model_name, pretrained=True).state_dict()
+        except Exception as exc:  # pragma: no cover - network/cache failures
+            warnings.warn(
+                "Failed to load pretrained ConvStem weights from timm; proceeding with random init. "
+                "Set model.stem_imagenet_model=null or provide TRANSD3_STEM_WEIGHTS to disable this attempt."
+                f" (reason: {exc})",
+                RuntimeWarning,
+            )
+            return
 
     conv_modules: List[nn.Conv2d] = [m for m in stem.layers if isinstance(m, nn.Conv2d)]
     bn_modules: List[nn.BatchNorm2d] = [m for m in stem.layers if isinstance(m, nn.BatchNorm2d)]
@@ -99,6 +123,26 @@ def load_imagenet_conv_stem(
             module.bias.copy_(state_dict[f"{key_prefix}.bias"].to(module.bias.dtype))
             module.running_mean.copy_(state_dict[f"{key_prefix}.running_mean"].to(module.running_mean.dtype))
             module.running_var.copy_(state_dict[f"{key_prefix}.running_var"].to(module.running_var.dtype))
+
+
+def _load_state_dict_from_path(path: Path) -> Dict[str, torch.Tensor]:
+    if path.suffix == ".safetensors":
+        try:
+            from safetensors.torch import load_file  # type: ignore[import]
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "safetensors is required to load .safetensors ConvStem weights; please install safetensors"
+            ) from exc
+        state = load_file(str(path))
+    else:
+        state = torch.load(path, map_location="cpu")
+
+    if isinstance(state, dict) and "state_dict" in state:
+        state = state["state_dict"]
+
+    if not isinstance(state, dict):
+        raise TypeError(f"Unexpected checkpoint format for ConvStem weights: {type(state)!r}")
+    return state
 
 
 def _match_conv_weights(
@@ -131,7 +175,7 @@ def _match_bn_params(state: Dict[str, torch.Tensor], modules: List[nn.BatchNorm2
         for name, tensor in state.items():
             if name in used or not name.endswith(".weight"):
                 continue
-            if "bn" not in name.split(".")[-2:]:
+            if not any("bn" in part.lower() for part in name.split(".")[-2:]):
                 continue
             if tensor.ndim == 1 and tensor.shape[0] == module.num_features:
                 prefix = name[:-7]
